@@ -10,6 +10,7 @@ from src.chains.synthesizer import synthesis_chain
 from src.agents.vector_agent import query_vector_search
 from src.agents.cypher_agent import query_cypher
 from src.agents.reflection_agents import vector_reflection_chain, reflection_chain
+from src.agents.mcp_rdf_agent import run_mcp_agent
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,20 @@ def guardrails_node(state: AgentState):
     else:
         logger.info("[[Guardrails]]: Question is relevant.")
         return {"is_relevant": True}
+
+# --- Node Definition: MCP RDF Agent ---
+async def mcp_rdf_agent_node(state: dict) -> dict:
+    """An asynchronous node for LangGraph that runs the MCP agent."""
+    logger.info("--- Executing Node: [[mcp_rdf_agent]] ---")
+    question = state.get("question")
+    
+    try:
+        mcp_context = await run_mcp_agent(question)
+        logger.info(f"[[MCP RDF Agent]]: Search completed. Context found:\n{mcp_context}")
+        return {"mcp_rdf_context": mcp_context}
+    except Exception as e:
+        logger.error(f"[[MCP RDF Agent]]: Gagal menjalankan node: {e}")
+        return {"mcp_rdf_context": f"Error in MCP RDF Agent node: {e}"}
 
 # --- Node Definition: Vector Agent ---
 def vector_search_node(state: AgentState):
@@ -147,6 +162,7 @@ def synthesize_node(state: AgentState):
         logger.info("[[Synthesizer]]: Compiling final answer from available context.")
         final_answer = synthesis_chain.invoke({
             "question": state['original_question'],
+            "mcp_rdf_context": str(state.get('mcp_rdf_context', 'No data was provided from this source.')),
             "cypher_context": str(state.get('cypher_context', 'No data was provided from this source.')),
             "vector_context": str(state.get('vector_context', 'No data was provided from this source.'))
         })
@@ -158,6 +174,7 @@ workflow = StateGraph(AgentState)
 
 # Add Nodes
 workflow.add_node("guardrails", guardrails_node)
+workflow.add_node("mcp_rdf_agent", mcp_rdf_agent_node)
 workflow.add_node("vector_agent", vector_search_node)
 workflow.add_node("review_vector_answer", review_vector_node)
 workflow.add_node("vector_reflection", vector_reflection_node)
@@ -170,7 +187,7 @@ workflow.add_node("synthesizer", synthesize_node)
 def decide_relevance(state: AgentState):
     if state.get('is_relevant'):
         logger.info("[Decision] Question is relevant, proceeding to search.")
-        return "vector_agent"
+        return "mcp_rdf_agent"
     else:
         logger.info("[Decision] Question is irrelevant, ending execution.")
         return END
@@ -209,16 +226,20 @@ workflow.add_conditional_edges(
     "guardrails", 
     decide_relevance, 
     {
-        "vector_agent": "vector_agent", 
+        "mcp_rdf_agent": "mcp_rdf_agent", 
         END: END
     }
+)
+workflow.add_edge(
+    "mcp_rdf_agent",
+    "vector_agent"
 )
 
 workflow.add_edge(
     "vector_agent",
     "review_vector_answer"
-
 )
+
 workflow.add_conditional_edges(
     "review_vector_answer", 
     decide_after_vector_review, 

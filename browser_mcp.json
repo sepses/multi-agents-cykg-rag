@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rdf_explorer": {
+      "command": "D:\\Project\\github\\mcp-rdf-explorer\\venv\\Scripts\\python.exe",
+      "args": ["D:\\Project\\github\\mcp-rdf-explorer\\src\\mcp-rdf-explorer\\server.py", "--triple-file", "statements.ttl"]
+    }
+  }
+}

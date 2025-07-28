@@ -7,6 +7,7 @@ class AgentState(TypedDict):
     question: str
     original_question: str
     is_relevant: bool
+    mcp_rdf_context: Optional[str]
     vector_context: Optional[str]
     cypher_context: Optional[List[dict]]
     answer: Optional[str]

@@ -8,11 +8,13 @@ synthesis_prompt = ChatPromptTemplate.from_template("""You are an expert cyberse
 The final output MUST follow this exact structure, including the markdown for bolding and formatting. Do not add any text outside of this structure.
 
 **Key Findings from Each Source:**
-
-1.  **Context from Cypher Query:**
+1. **Context from MCP/RDF Query (.ttl file):**
+    [Summarize the key findings from the MCP/RDF context here. If the context is empty or contains an error message, state that "No relevant data was found from this source."]
+    
+2.  **Context from Cypher Query:**
     [Summarize the key findings from the Cypher context here. If the context is empty, null, or contains 'No data', state that "No data was provided from this source."]
 
-2.  **Context from Vector Search:**
+3.  **Context from Vector Search:**
     [Summarize the key findings from the Vector context here. You can break this down into "Structured Data" and "Unstructured Data" if the context allows. If the context is empty, null, or contains 'No data', state that "No data was provided from this source."]
 
 **Critical Analysis:**
@@ -21,12 +23,15 @@ The final output MUST follow this exact structure, including the markdown for bo
 
 **Final Answer:**
 
-[Based on your analysis, construct a final, well-structured, human-readable answer for the user. Synthesize the findings into a cohesive response.]
+[Based on your analysis, construct a final, cohesive answer that **directly addresses the user's Original Question**. Synthesize all findings into a clear, human-readable response.]
 
 ---
 Here is the data to use for generating the report:
 
 **Original Question:** {question}
+
+**Context from MCP/RDF Query:**
+{mcp_rdf_context}
 
 **Context from Cypher Query:**
 {cypher_context}
