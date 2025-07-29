@@ -3,18 +3,17 @@ import argparse
 import asyncio
 from src.utils.logging_config import setup_logging
 from src.graph.workflow import app
+import logging
 
 async def main():
     """The main function is to run the agent."""
-    # Atur logging
     setup_logging()
+    logging.getLogger('mcp_use').propagate = False
     
-    # Atur parser untuk argumen command-line
     parser = argparse.ArgumentParser(description="Run Multi-Agent with questions.")
     parser.add_argument("question", type=str, help="Questions to ask agents.")
     args = parser.parse_args()
 
-    # Definisikan state awal
     initial_state = {
         "question": args.question,
         "original_question": args.question,
@@ -25,11 +24,9 @@ async def main():
     }
 
     config = {"recursion_limit": 30}
-    
-    # Jalankan agen
+
     final_result = await app.ainvoke(initial_state, config=config)
     
-    # Cetak jawaban akhir
     print("\n--- Final Answer ---")
     print(final_result.get('answer'))
 

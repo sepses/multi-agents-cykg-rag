@@ -2,7 +2,7 @@
 from langchain_core.prompts import PromptTemplate
 from langchain_neo4j.chains.graph_qa.cypher import GraphCypherQAChain
 from langchain_openai import ChatOpenAI
-from src.config.settings import llm, graph, NEO4J_SCHEMA_ESCAPED_FOR_PROMPT
+from src.config.settings import graph
 
 # --- Cypher Generation Prompt Template ---
 cypher_generation_template = """
