@@ -61,3 +61,39 @@ NEO4J_AURA_DATABASE=
 
 - **Logging & Configuration**: Supports structured logging and configuration via .env files.
 
+
+## Project Structure
+
+```bash
+
+no-log-multi-agents-cykg-rag/
+├── src/
+│   ├── agents/
+│   │   ├── __init__.py
+│   │   ├── mcp_rdf_agent.py
+│   │   ├── cypher_agent.py
+│   │   ├── reflection_agents.py
+│   │   └── vector_agent.py
+│   ├── chains/
+│   │   ├── __init__.py
+│   │   ├── guardrails.py
+│   │   ├── review.py
+│   │   └── synthesizer.py
+│   ├── config/
+│   │   ├── __init__.py
+│   │   └── settings.py
+│   ├── graph/
+│   │   ├── __init__.py
+│   │   ├── state.py
+│   │   └── workflow.py
+│   ├── log/
+│   │   └── (a log file will be created here)
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── logging_config.py
+│   └── run.py
+└── .env
+
+
+```
+
