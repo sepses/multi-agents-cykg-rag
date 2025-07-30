@@ -26,7 +26,7 @@ The final output MUST follow this exact structure, including the markdown for bo
 [Based on your analysis, construct a final, cohesive answer that **directly addresses the user's Original Question**. Synthesize all findings into a clear, human-readable response.]
 
 ---
-Here is the data to use for generating the report:
+Only use data from each context and do not add additional information or knowledge other than the context, here is the data to use for generating the report :
 
 **Original Question:** {question}
 
