@@ -22,7 +22,6 @@ def get_mcp_client():
         os.environ["MCP_USE_ANONYMIZED_TELEMETRY"] = "false"
         _mcp_client = MCPClient.from_config_file(str(config_path))
     return _mcp_client
-# Inisialisasi client sekali saja untuk efisiensi
 
 strict_system_prompt = """
 You are a specialized cybersecurity assistant. You MUST answer questions ONLY by using the provided tools. Your only source of information is the knowledge graph accessed via tools.

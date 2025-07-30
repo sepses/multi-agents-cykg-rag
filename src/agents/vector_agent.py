@@ -6,30 +6,32 @@ from typing import List
 from src.config.settings import llm, graph, vector_index
 
 # --- Entity Extraction ---
-class Entities(BaseModel):
-    """Identifying information about resources."""
+class LogEntities(BaseModel):
+    """Identifies information about resources in the log."""
 
-    names: List[str] = Field(
+    entity_values: List[str] = Field(
         ...,
-        description="All the tactics, techniques, or software entities that "
-        "appear in the text",
+        description="All entities such as User, Server, Service, Host, "
+        "System, Software, Device, Process, Machine, Session, or Document file names that appear in the text.",
     )
 
 entity_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "You are extracting attack techniques, tactics, malware, mitigations entities from the text.",
+            "You are an expert at extracting entities from text related to system logs. "
+            "Extract the name or ID of entities such as User, Server, Service, "
+            "Host, System, Software, Device, Process, Machine, Session, and the filename of the Document.",
         ),
         (
             "human",
-            "Use the given format to extract information from the following "
-            "input: {question}",
+            "Use the given format to extract information from"
+            "the following input: {question}",
         ),
     ]
 )
 
-entity_chain = entity_prompt | llm.with_structured_output(Entities)
+entity_chain = entity_prompt | llm.with_structured_output(LogEntities)
 
 # --- Helper Functions ---
 def generate_full_text_query(input: str) -> str:
@@ -48,40 +50,53 @@ def generate_full_text_query(input: str) -> str:
         full_text_query += f" {word}~2 AND"
     full_text_query += f" {words[-1]}~2"
     return full_text_query.strip()
-    
+
 def structured_retriever(question: str) -> str:
     """
     Collects the neighborhood of resources mentioned
     in the question
     """
     result = ""
+    
     entities = entity_chain.invoke({"question": question})
-    for entity in entities.names:
+    print(f"\n--- Extracted Entities: {entities.entity_values} ---")
+
+    for entity_value in entities.entity_values:
+        query = generate_full_text_query(entity_value)
+        if not query:
+            continue
+        
         response = graph.query(
-            """CALL db.index.fulltext.queryNodes('entity', $query, {limit:2})
-            YIELD node, score
+            """
+            CALL db.index.fulltext.queryNodes('log_entities', $query, {limit: 10})
+            YIELD node AS entity
             
-            MATCH (node)-[r]-(neighbor)
-            WHERE node.ns1__title IS NOT NULL AND neighbor.ns1__title IS NOT NULL
+            MATCH (chunk:Chunk)-[:HAS_ENTITY]->(entity)
             
-            RETURN CASE
-                WHEN startNode(r) = node 
-                THEN node.ns1__title + ' - ' + type(r) + ' -> ' + neighbor.ns1__title
-                ELSE neighbor.ns1__title + ' - ' + type(r) + ' -> ' + node.ns1__title
-            END AS output
-            LIMIT 50
+            OPTIONAL MATCH (chunk)-[:PART_OF]->(doc:Document)
+            
+            WITH entity, chunk, doc,
+                 CASE WHEN 'Document' IN labels(entity) 
+                      THEN entity.fileName 
+                      ELSE entity.id 
+                 END AS entity_name
+                 
+            RETURN "Entity '" + entity_name + "' found in document '" + coalesce(doc.fileName, 'N/A') +
+                   "'. The context of the text is: '" + left(chunk.text, 250) + "...'"
+                   AS output
+            LIMIT 10
             """,
-            {"query": generate_full_text_query(entity)},
+            {"query": query},
         )
-        result += "\n".join([el['output'] for el in response])
+        if response:
+            result += "\n".join([el['output'] for el in response])
     return result
 
 # --- Main Search Function ---
 def query_vector_search(question: str):
     """
     Query the graph and vector index using a vector approach for vector similarity search.
-    Use this for questions that require finding similar concepts or descriptions,
-    like "Show me techniques related to 'SQL Injection'".
+    This is for questions that require finding similar concepts or descriptions.
     """
     print(f"--- Executing Vector Search for: {question} ---")
     structured_data = structured_retriever(question)

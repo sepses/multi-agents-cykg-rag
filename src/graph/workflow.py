@@ -4,13 +4,15 @@ from langgraph.graph import StateGraph, END
 from src.graph.state import AgentState
 
 # Import all chains dan agen func
-from src.chains.guardrails import guardrails_chain
-from src.chains.review import review_chain
-from src.chains.synthesizer import synthesis_chain
+from src.agents.guardrails_agent import guardrails_chain
+from src.agents.review_agent import review_chain
+from src.agents.synthesizer_agent import synthesis_chain
 from src.agents.vector_agent import query_vector_search
 from src.agents.cypher_agent import query_cypher
-from src.agents.reflection_agents import vector_reflection_chain, reflection_chain
+from src.agents.reflection_agent import vector_reflection_chain, reflection_chain
 from src.agents.mcp_rdf_agent import run_mcp_agent
+from src.agents.routing_agent import router_chain
+from src.agents.log_analysis_agent import log_analysis_chain
 
 logger = logging.getLogger(__name__)
 
@@ -22,24 +24,24 @@ def guardrails_node(state: AgentState):
     result = guardrails_chain.invoke({"question": question})
     if result.decision == "irrelevant":
         logger.warning(f"[[Guardrails]]: Irrelevant question detected -> '{question}'")
-        return {"is_relevant": False, "answer": "Sorry, I can only answer questions related to cybersecurity and MITRE ATT&CK."}
+        return {"is_relevant": False, "answer": "Sorry, I can only answer questions related to cybersecurity, such as log analysis, attack techniques, malware, and threat actors."}
     else:
         logger.info("[[Guardrails]]: Question is relevant.")
         return {"is_relevant": True}
 
-# --- Node Definition: MCP RDF Agent ---
-async def mcp_rdf_agent_node(state: dict) -> dict:
-    """An asynchronous node for LangGraph that runs the MCP agent."""
-    logger.info("--- Executing Node: [[mcp_rdf_agent]] ---")
-    question = state.get("question")
-    
-    try:
-        mcp_context = await run_mcp_agent(question)
-        logger.info(f"[[MCP RDF Agent]]: Search completed. Context found:\n{mcp_context}")
-        return {"mcp_rdf_context": mcp_context}
-    except Exception as e:
-        logger.error(f"[[MCP RDF Agent]]: Gagal menjalankan node: {e}")
-        return {"mcp_rdf_context": f"Error in MCP RDF Agent node: {e}"}
+# --- Node Definition: Router ---
+def log_or_cyber_router_node(state: AgentState):
+    """
+    Determines if the question is about logs or general cyber knowledge
+    """
+    logger.info("--- Executing Node: [[Router]] ---")
+    question = state['question']
+    result = router_chain.invoke({"question": question})
+    logger.info(f"[[Router]]: Routing decision: {result.datasource}")
+    if result.datasource == "log_analysis":
+        return {"is_log_question": True}
+    else:
+        return {"is_log_question": False}
 
 # --- Node Definition: Vector Agent ---
 def vector_search_node(state: AgentState):
@@ -50,21 +52,25 @@ def vector_search_node(state: AgentState):
         vector_context = query_vector_search(question)
         logger.info("[[Vector Agent]] : Vector search completed successfully.")
         logger.info(f"[[Vector Agent]] : Vector search context found:\n{vector_context}")
-        return {"vector_context": vector_context}
+        return {"log_vector_context": vector_context}
     except Exception as e:
         logger.error(f"[[Vector Agent]] : Vector search failed: {e}")
-        return {"vector_context": f"Error during vector search: {e}"}
+        return {"log_vector_context": f"Error during vector search: {e}"}
 
 # --- Node Definition: Review Vector Answer ---
 def review_vector_node(state: AgentState):
     """Reviews the context from the vector search."""
     logger.info("--- Executing Node: [[review_vector_answer]] ---")
     question = state['original_question']
-    context = state['vector_context']
+    context = state['log_vector_context']
+    
+    if context and "Error during vector search" not in context:
+        logger.info(f"[[Review Vector]]: Found new context, saving as 'latest_vector_context'.")
+        state['latest_vector_context'] = context
     
     if not context or "Error during vector search" in context:
         logger.warning("[[Review Vector]]: Context is empty or contains an error. Marking as insufficient.")
-        return {"vector_answer_sufficient": False}
+        return {"vector_answer_sufficient": False, "log_vector_context": None}
 
     review = review_chain.invoke({"question": question, "context": context})
     logger.info(f"[[Review Vector]]: Decision: {review.decision}. Reasoning: {review.reasoning}")
@@ -76,11 +82,11 @@ def vector_reflection_node(state: AgentState):
     """Reflects on the failed vector search and rephrases the question."""
     logger.info("--- Executing Node: [[vector_reflection]] ---")
     original_question = state['original_question']
-    insufficient_context = state['vector_context']
+    insufficient_context = state['log_vector_context']
     
     rephrased_result = vector_reflection_chain.invoke({
         "original_question": original_question,
-        "vector_context": insufficient_context
+        "log_vector_context": insufficient_context
     })
     
     new_question = rephrased_result.rephrased_question
@@ -106,13 +112,13 @@ def cypher_query_node(state: AgentState):
 
         return {
             "cypher_query": generated_query,
-            "cypher_context": context
+            "log_cypher_context": context
         }
     except Exception as e:
         logger.error(f"[[Cypher Agent]] failed: {e}", exc_info=True)
         return {
             "error": f"Query Cypher failed: {e}",
-            "cypher_context": [],
+            "log_cypher_context": [],
             "cypher_query": "Failed to generate Cypher query due to an error."
         }
 
@@ -121,11 +127,15 @@ def review_cypher_node(state: AgentState):
     """Reviews the context from the cypher search."""
     logger.info("--- Executing Node: [[review_cypher_answer]] ---")
     question = state['original_question']
-    context = str(state['cypher_context'])
+    context = str(state['log_cypher_context'])
+    
+    if context and context is not None:
+        logger.info(f"[[Review Cypher]]: Found new context, saving as 'latest_cypher_context'.")
+        state['latest_cypher_context'] = context
 
-    if not state.get('cypher_context'):
+    if not context:
         logger.warning("[[Review Cypher]]: Context is empty. Marking as insufficient.")
-        return {"cypher_answer_sufficient": False}
+        return {"cypher_answer_sufficient": False, "log_cypher_context": None}
         
     review = review_chain.invoke({"question": question, "context": context})
     logger.info(f"[[Review Cypher]]: Decision: {review.decision}. Reasoning: {review.reasoning}")
@@ -150,21 +160,67 @@ def cypher_reflection_node(state: AgentState):
     
     return {"question": new_question, "cypher_iteration_count": iteration_count}
 
+# --- Node Definition: Log Analysis Agent ---
+def log_analysis_node(state: AgentState):
+    """Analyzes log data and generates a new question for the RDF agent."""
+    logger.info("--- Executing Node: [[Log Analysis Agent]] ---")
+    
+    result = log_analysis_chain.invoke({
+        "original_question": state['original_question'],
+        "log_vector_context": str(state.get('log_vector_context', 'No data')),
+        "log_cypher_context": str(state.get('log_cypher_context', 'No data')),
+    })
+
+    logger.info(f"[[Log Analysis Agent]]: Log Summary: {result.log_summary}")
+    logger.info(f"[[Log Analysis Agent]]: Generated Question for RDF Agent: {result.generated_question}")
+    
+    # We will temporarily store the log summary in the 'answer' field
+    # The synthesizer will later use this and combine it.
+    return {
+        "answer": result.log_summary,
+        "generated_question_for_rdf": result.generated_question
+    }
+
+# --- Node Definition: MCP RDF Agent ---
+async def mcp_rdf_agent_node(state: dict) -> dict:
+    """An asynchronous node for LangGraph that runs the MCP agent."""
+    logger.info("--- Executing Node: [[mcp_rdf_agent]] ---")
+    
+    question_to_ask = ""
+    if state.get('is_log_question') and state.get('generated_question_for_rdf'):
+        question_to_ask = state['generated_question_for_rdf']
+        logger.info(f"[[MCP RDF Agent]]: Answering generated question: '{question_to_ask}'")
+    else:
+        question_to_ask = state['original_question']
+        logger.info(f"[[MCP RDF Agent]]: Answering direct question: '{question_to_ask}'")
+        
+    try:
+        mcp_context = await run_mcp_agent(question_to_ask)
+        logger.info(f"[[MCP RDF Agent]]: Search completed. Context found:\n{mcp_context}")
+        return {"mcp_rdf_context": mcp_context}
+    except Exception as e:
+        logger.error(f"[[MCP RDF Agent]]: Gagal menjalankan node: {e}")
+        return {"mcp_rdf_context": f"Error in MCP RDF Agent node: {e}"}
+    
 # --- Node Definition: Synthesizer ---
 def synthesize_node(state: AgentState):
-    """Generates the final compiled answer for the user based on all gathered context."""
-    logger.info("--- Executing Node: [[synthesizer]] ---")
-    
-    # Check if any context exists at all after all retries
-    if not state.get('vector_context') and not state.get('cypher_context'):
-        final_answer = "Sorry, after several attempts, I could not find any information related to your question from any of our data sources."
+    """Generates the final compiled report for the user."""
+    logger.info("--- Executing Node: [[Synthesizer]] ---")
+
+    # Ambil konteks, jika tidak ada atau kosong, gunakan pesan default
+    log_cypher = str(state.get('log_cypher_context')) if state.get('log_cypher_context') else "Not applicable for this query."
+    log_vector = str(state.get('log_vector_context')) if state.get('log_vector_context') else "Not applicable for this query."
+    generated_q = str(state.get('generated_question_for_rdf', "Not applicable for this query."))
+
+    if not state.get('mcp_rdf_context') and log_cypher == "Not applicable for this query." and log_vector == "Not applicable for this query.":
+        final_answer = "Sorry, after several attempts, I could not find any relevant information."
     else:
-        logger.info("[[Synthesizer]]: Compiling final answer from available context.")
         final_answer = synthesis_chain.invoke({
-            "question": state['original_question'],
-            "mcp_rdf_context": str(state.get('mcp_rdf_context', 'No data was provided from this source.')),
-            "cypher_context": str(state.get('cypher_context', 'No data was provided from this source.')),
-            "vector_context": str(state.get('vector_context', 'No data was provided from this source.'))
+            "original_question": state['original_question'],
+            "log_cypher_context": log_cypher,
+            "log_vector_context": log_vector,
+            "generated_question_for_rdf": generated_q,
+            "mcp_rdf_context": str(state.get('mcp_rdf_context', "No data was provided from this source.")),
         })
         
     return {"answer": final_answer}
@@ -174,26 +230,39 @@ workflow = StateGraph(AgentState)
 
 # Add Nodes
 workflow.add_node("guardrails", guardrails_node)
-workflow.add_node("mcp_rdf_agent", mcp_rdf_agent_node)
+workflow.add_node("log_or_cyber_router", log_or_cyber_router_node)
 workflow.add_node("vector_agent", vector_search_node)
 workflow.add_node("review_vector_answer", review_vector_node)
 workflow.add_node("vector_reflection", vector_reflection_node)
+
 workflow.add_node("cypher_agent", cypher_query_node)
 workflow.add_node("review_cypher_answer", review_cypher_node)
 workflow.add_node("cypher_reflection", cypher_reflection_node)
+
+workflow.add_node("log_analysis_agent", log_analysis_node)
+workflow.add_node("mcp_rdf_agent", mcp_rdf_agent_node)
 workflow.add_node("synthesizer", synthesize_node)
 
 # 1. Decision after Guardrails
 def decide_relevance(state: AgentState):
     if state.get('is_relevant'):
         logger.info("[Decision] Question is relevant, proceeding to search.")
-        return "mcp_rdf_agent"
+        return "log_or_cyber_router"
     else:
         logger.info("[Decision] Question is irrelevant, ending execution.")
         return END
+    
+# 2. Decision after Router
+def decide_log_vs_cyber(state: AgentState):
+    if state.get('is_log_question'):
+        logger.info("[Decision] Question is about logs, proceeding to vector search.")
+        return "vector_agent"
+    else:
+        logger.info("[Decision] Question is about cyber knowledge, proceeding to RDF agent.")
+        return "mcp_rdf_agent"
 
 
-# 2. Decision after Vector Review
+# 3. Decision after Vector Review
 def decide_after_vector_review(state: AgentState):
     if state.get('vector_answer_sufficient'):
         logger.info("[Decision] Vector context is sufficient. Proceeding to Cypher agent.")
@@ -202,21 +271,32 @@ def decide_after_vector_review(state: AgentState):
         logger.warning("[Decision] Vector context is insufficient. Proceeding to reflection.")
         return "vector_reflection"
     else:
-        logger.error("[Decision] Max retries for Vector search reached. Proceeding to Cypher agent.")
-        return "cypher_agent"
+        if state.get('latest_vector_context'):
+            logger.error("[Decision] Max retries for Vector search reached, but a previous context was found. Using the 'latest' context and proceeding to Cypher.")
+            state['log_vector_context'] = state['latest_vector_context']
+            return "cypher_agent"
+        else:
+            logger.error("[Decision] Max retries for Vector search reached with no usable context. Proceeding to Cypher with no Vector data.")
+            return "cypher_agent"
     
 
 # 3. Decision after Cypher Review
 def decide_after_cypher_review(state: AgentState):
     if state.get('cypher_answer_sufficient'):
-        logger.info("[Decision] Cypher context is sufficient. Proceeding to synthesizer.")
-        return "synthesizer"
+        logger.info("[Decision] Cypher context is sufficient. Proceeding to Log Analysis agent.")
+        return "log_analysis_agent"
     if state.get("cypher_iteration_count", 0) < state.get("max_iterations", 3):
         logger.warning("[Decision] Cypher context is insufficient. Proceeding to reflection.")
         return "cypher_reflection"
     else:
-        logger.error("[Decision] Max retries for Cypher reached. Proceeding to synthesizer.")
-        return "synthesizer"
+        if state.get('latest_cypher_context'):
+            logger.error("[Decision] Max retries for Cypher reached, but a previous context was found. Using the 'latest' context and proceeding to Log Analysis.")
+            
+            state['log_cypher_context'] = state['latest_cypher_context']
+            return "log_analysis_agent"
+        else:
+            logger.error("[Decision] Max retries for Cypher reached with no usable context. Proceeding to Log Analysis with no Cypher data.")
+            return "log_analysis_agent"
 
 # --- Define Edges ---
 workflow.set_entry_point("guardrails")
@@ -226,13 +306,18 @@ workflow.add_conditional_edges(
     "guardrails", 
     decide_relevance, 
     {
-        "mcp_rdf_agent": "mcp_rdf_agent", 
+        "log_or_cyber_router": "log_or_cyber_router", 
         END: END
     }
 )
-workflow.add_edge(
-    "mcp_rdf_agent",
-    "vector_agent"
+
+workflow.add_conditional_edges(
+    "log_or_cyber_router",
+    decide_log_vs_cyber,
+    {
+        "vector_agent": "vector_agent",
+        "rdf_agent": "rdf_agent"
+    }
 )
 
 workflow.add_edge(
@@ -263,7 +348,7 @@ workflow.add_conditional_edges(
     "review_cypher_answer",
     decide_after_cypher_review,
     {
-        "synthesizer": "synthesizer",
+        "log_analysis_agent": "log_analysis_agent",
         "cypher_reflection": "cypher_reflection"
     }
 )
@@ -271,6 +356,16 @@ workflow.add_conditional_edges(
 workflow.add_edge(
     "cypher_reflection", 
     "cypher_agent"
+)
+
+workflow.add_edge(
+    "log_analysis_agent",
+    "mcp_rdf_agent"
+)
+
+workflow.add_edge(
+    "rdf_agent", 
+    "synthesizer"
 )
 
 workflow.add_edge(

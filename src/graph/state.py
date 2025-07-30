@@ -7,13 +7,21 @@ class AgentState(TypedDict):
     question: str
     original_question: str
     is_relevant: bool
-    mcp_rdf_context: Optional[str]
+    is_log_question: bool
+    
     vector_context: Optional[str]
     cypher_context: Optional[List[dict]]
+    
+    latest_vector_context: Optional[List[dict]]
+    latest_cypher_context: Optional[List[dict]]
+    
+    generated_question_for_rdf: Optional[str]
+    mcp_rdf_context: Optional[str]
+    
     answer: Optional[str]
     cypher_query: Optional[str]
     error: Optional[str]
-    messages: Annotated[list, add_messages] # add_messages
+    messages: Annotated[list, add_messages]
     
     # reflection state
     cypher_iteration_count: int

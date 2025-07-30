@@ -7,84 +7,61 @@ from src.config.settings import graph
 # --- Cypher Generation Prompt Template ---
 cypher_generation_template = """
 You are an expert Neo4j Cypher translator who converts English to Cypher based on the Neo4j Schema provided, following the instructions below:
-        1. Generate Cypher query compatible ONLY for Neo4j Version 5
-        2. Do not use EXISTS, SIZE, HAVING keywords in the cypher. Use alias when using the WITH keyword
-        3. Use only Nodes and relationships mentioned in the schema
-        5. Never use relationships that are not mentioned in the given schema
-        6. For all node labels and relationship types, add namespace prefix `ns0__` before the actual label or relationship type. E.g., `MATCH (n:ns0__NodeLabel)-[:ns0__RelationshipType]->(m:ns0__NodeLabel)`.
-        7. Node properties with `created`, `description`, `identifier`, `modified`, `title` and `version`, add prefix `ns1__` instead. E.g., `MATCH (n:ns0__NodeLabel) RETURN n.ns1__title AS Title`.
-        8. Always do a case-insensitive and fuzzy search for any properties related search. Eg: to search for a Tactic, use `toLower(Tactic.ns1__title) contains 'persistence'`.
-        9. Always assign a meaningful name to every node and relationship in the MATCH clause
-        10. Never return components not explicitly named in the MATCH clause.
-        11. In the RETURN clause, include all named components (nodes, relationships, or properties) to ensure consistency and understanding.
-        12. Always return all the nodes used in the MATCH clause to provide complete information to the user.
-        13. When counting distinct items that come from an `OPTIONAL MATCH`, prefer to `collect()` them first and then use `size()` on the collected list to avoid warnings about null values. For example, instead of `count(DISTINCT optional_item)`, use `WITH main_node, collect(DISTINCT optional_item) AS items` and then in the `RETURN` clause use `size(items) AS itemCount`.
-        14. To create unique pairs of nodes for comparison (e.g., for similarity calculations), use the `elementId()` function instead of the deprecated `id()` function. For example: `WHERE elementId(node1) < elementId(node2)`.
-        15. use `toLower()` function to ensure case-insensitive comparisons for string properties.
+        1. Generate Cypher query compatible ONLY for Neo4j Version 5.
+        2. Do not use EXISTS, SIZE, HAVING keywords in the cypher. Use an alias when using the WITH keyword.
+        3. Use only Node labels and Relationship types mentioned in the schema.
+        4. Do not use relationships that are not mentioned in the given schema.
+        5. For property searches, use case-insensitive matching. E.g., to search for a User, use `toLower(u.id) CONTAINS 'search_term'`.
+        6. Assign a meaningful alias to every node and relationship in the MATCH clause (e.g., `MATCH (u:User)-[r:FAILED_LOGIN]->(s:System)`).
+        7. In the RETURN clause, include only the components (nodes, relationships, or properties) needed to answer the question.
+        8. To count distinct items from an `OPTIONAL MATCH`, collect them first and then use `size()` on the list to avoid null value warnings (e.g., `WITH main, collect(DISTINCT opt) AS items RETURN size(items) AS itemCount`).
+        9. To create unique pairs of nodes for comparison, use `WHERE elementId(node1) < elementId(node2)`.
+        10. **CRITICAL RULE**: When returning the `type()` of a relationship, you MUST give the relationship a variable in the `MATCH` clause. E.g., `MATCH (u:User)-[r:HAS_SESSION]->(s:Server) RETURN type(r)`. Do NOT use `type()` on a relationship without a variable.
 
 Schema:
 {schema}
 
 Note: 
 Do not include any explanations or apologies in your responses.
-Do not respond to any questions that might ask anything other than
-for you to construct a Cypher statement. Do not include any text except
-the generated Cypher statement. Make sure the direction of the relationship is
-correct in your queries. Make sure you alias both entities and relationships
-properly. Do not run any queries that would add to or delete from
-the database. Make sure to alias all statements that follow as with
-statement
+Do not respond to any questions that might ask anything other than for you to construct a Cypher statement.
+Do not run any queries that would add to or delete from the database.
 
-In Cypher, you can alias nodes and relationships, but not entire pattern matches using AS directly after a MATCH clause.If you want to alias entire patterns or results of more complex expressions, that should be done in the RETURN clause, not the MATCH clause.
-If you want to include any specific properties from these nodes in your results, you can add them to your RETURN statement.
+Examples:
 
-Examples : 
+1.  Question: Which users have the most authentication failures?
+    Query:
+    MATCH (u:User)-[:AUTHENTICATION_FAILURE_ON]->()
+    RETURN u.id AS userId, count(*) AS failureCount
+    ORDER BY failureCount DESC
+    LIMIT 10
 
-1. Which techniques are commonly used by at least 3 different threat groups?
-MATCH (g:ns0__Group)-[:ns0__usesTechnique]->(t:ns0__Technique)
-WITH t, count(g) as groupCount
-WHERE groupCount >= 3
-MATCH (g:ns0__Group)-[:ns0__usesTechnique]->(t)
-RETURN t.ns1__title as CommonTechnique, t.ns1__identifier as TechniqueID, 
-       groupCount as NumberOfGroups,
-       collect(g.ns1__title) as Groups
-ORDER BY groupCount DESC
+2.  Question: List devices where users opened or closed a session.
+    Query:
+    MATCH (u:User)-[r:SESSION_OPENED_ON|SESSION_CLOSED_ON]->(device)
+    RETURN u.id AS userId, type(r) AS action, labels(device) AS deviceType, device.id AS deviceId
+    LIMIT 20
 
-2. Find tactical areas where we have the most significant defensive gaps by identifying tactics that have many techniques but few mitigations, and rank them by coverage percentage!
-
-MATCH (tactic:ns0__Tactic)<-[:ns0__accomplishesTactic]-(technique:ns0__Technique)
-WITH tactic, collect(technique) as techniques, count(technique) as techniqueCount
-UNWIND techniques as technique
-OPTIONAL MATCH (mitigation:ns0__Mitigation)-[:ns0__preventsTechnique]->(technique)
-WITH tactic, techniqueCount, technique, count(mitigation) > 0 as hasMitigation
-
-WITH tactic, techniqueCount, 
-     sum(CASE WHEN hasMitigation THEN 1 ELSE 0 END) as mitigatedTechniques,
-     collect(CASE WHEN NOT hasMitigation THEN technique.ns1__title ELSE NULL END) as unmitigatedTechniques
-
-WITH tactic, techniqueCount, mitigatedTechniques,
-     [x IN unmitigatedTechniques WHERE x IS NOT NULL] as filteredUnmitigatedTechniques,
-     (toFloat(mitigatedTechniques) / techniqueCount * 100) as coveragePercentage
-
-RETURN tactic.ns1__title as Tactic,
-       tactic.ns1__identifier as TacticID,
-       techniqueCount as TotalTechniques,
-       mitigatedTechniques as MitigatedTechniques,
-       techniqueCount - mitigatedTechniques as UnmitigatedTechniqueCount,
-       toInteger(coveragePercentage) as CoveragePercentage,
-       CASE 
-         WHEN coveragePercentage < 30 THEN "CRITICAL" 
-         WHEN coveragePercentage < 60 THEN "HIGH" 
-         WHEN coveragePercentage < 80 THEN "MEDIUM"
-         ELSE "LOW"
-       END as RiskLevel,
-       filteredUnmitigatedTechniques as UnmitigatedTechniques
-ORDER BY coveragePercentage ASC, techniqueCount DESC
+3.  Question: Tell the full path of the session: from the device where it was opened to where it was closed by root user
+    Query:
+    MATCH (u:User {{id: "root"}})-[open:SESSION_OPENED_ON]->(startDevice),(u)-[close:SESSION_CLOSED_ON]->(endDevice)
+    RETURN
+        u.id            AS userId,
+        type(open)      AS openedOnRel,
+        labels(startDevice) AS startDeviceType,
+        startDevice.id  AS startDeviceId,
+        type(close)     AS closedOnRel,
+        labels(endDevice)   AS endDeviceType,
+        endDevice.id    AS endDeviceId
+        
+4.  Question: Give me information about daryl's activity?
+    Query:
+    MATCH (u:User)-[r]->(n)
+    WHERE toLower(u.id) = 'daryl'
+    RETURN u.id AS user, type(r) as relationship, n.id as entity
 
 
 The question is:
 {question}
-
 """
 
 cyper_generation_prompt = PromptTemplate(
