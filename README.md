@@ -19,15 +19,20 @@ Make sure that you already have uv installed on your desktop, if not then here's
   cd <this-project>
   uv sync
 ```
-
-After that, you can use the kernel of .venv to run these python notebook project. to run this : 
-- setup MCP server with information on github [MCP RDF Explorer](https://github.com/emekaokoye/mcp-rdf-explorer)
-- dont forget to start the databases first
-- you can use docker to start 2 databases simultaneously
-- but here using neo4j local and also neo4j cloud (aura).
-
-```bash
-  uv run -m src.run -- "Your question here"
+- make sure that you have cloned the MCP RDF Explorer repository, outside this multi-agents-cykg-rag repository/folder
+- add your .ttl (rdf schema) to $ ls mcp-rdf-explorer/src/mcp-rdf-explorer/
+- one level with the server.py code
+- setup the browser_mcp.json located in root of multi-agents-cykg-rag repository
+- which look like this (you can see more specific explanation of this step in MCP-RDF-Explorer repo [MCP RDF Explorer](https://github.com/emekaokoye/mcp-rdf-explorer)) :
+```json
+  {
+  "mcpServers": {
+    "rdf_explorer": {
+      "command": "D:\\Project\\github\\mcp-rdf-explorer\\venv\\Scripts\\python.exe",
+      "args": ["D:\\Project\\github\\mcp-rdf-explorer\\src\\mcp-rdf-explorer\\server.py", "--triple-file", "statements.ttl"]
+    }
+  }
+}
 ```
 
 Make sure again that the .env file is filled !!!
@@ -47,6 +52,13 @@ NEO4J_AURA_USERNAME=
 NEO4J_AURA_PASSWORD=
 NEO4J_AURA_DATABASE=
 ```
+
+Setup is completed, now you can run the program!!!
+```bash
+  uv run -m src.run -- "Your question here"
+```
+
+
 ## Features
 
 - **Multi-agent workflow**: Uses LangGraph to manage the workflow between agents (guardrails, vector search, cypher search, MCP RDF, reflection, and synthesizer).
