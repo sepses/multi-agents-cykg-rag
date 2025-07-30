@@ -316,7 +316,7 @@ workflow.add_conditional_edges(
     decide_log_vs_cyber,
     {
         "vector_agent": "vector_agent",
-        "rdf_agent": "rdf_agent"
+        "mcp_rdf_agent": "mcp_rdf_agent"
     }
 )
 
@@ -364,7 +364,7 @@ workflow.add_edge(
 )
 
 workflow.add_edge(
-    "rdf_agent", 
+    "mcp_rdf_agent", 
     "synthesizer"
 )
 

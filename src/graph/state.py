@@ -9,8 +9,8 @@ class AgentState(TypedDict):
     is_relevant: bool
     is_log_question: bool
     
-    vector_context: Optional[str]
-    cypher_context: Optional[List[dict]]
+    log_vector_context: Optional[str]
+    log_cypher_context: Optional[List[dict]]
     
     latest_vector_context: Optional[List[dict]]
     latest_cypher_context: Optional[List[dict]]
