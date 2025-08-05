@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "rdf_explorer": {
-      "command": "D:\\SANDBOX\\AGyRAG\\multi-agents-cykg-rag\\mcp-cskg-rdf\\venv\\Scripts\\python.exe",
-      "args": ["D:\\SANDBOX\\AGyRAG\\multi-agents-cykg-rag\\mcp-cskg-rdf\\src\\mcp-cskg-rdf\\server.py", "--sparql-endpoint", "http://localhost:8890/sparql"]
-    }
-  }
-}
