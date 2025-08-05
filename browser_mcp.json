@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "rdf_explorer": {
-      "command": "D:\\Project\\github\\mcp-rdf-explorer\\venv\\Scripts\\python.exe",
-      "args": ["D:\\Project\\github\\mcp-rdf-explorer\\src\\mcp-rdf-explorer\\server.py", "--triple-file", "statements.ttl"]
+      "command": "\\mcp-cskg-rdf\\venv\\Scripts\\python.exe",
+      "args": ["\\mcp-cskg-rdf\\src\\mcp-cskg-rdf\\server.py", "--sparql-endpoint", "http://localhost:8890/sparql"]
     }
   }
 }
