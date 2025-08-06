@@ -4,44 +4,42 @@ from langgraph.graph import StateGraph, END
 from src.graph.state import AgentState
 
 # Import all chains dan agen func
-from src.agents.guardrails_agent import guardrails_chain
+from src.agents.guardrails_agent import guardrails_router_chain
 from src.agents.review_agent import review_chain
 from src.agents.synthesizer_agent import synthesis_chain
 from src.agents.vector_agent import query_vector_search
 from src.agents.cypher_agent import query_cypher
 from src.agents.reflection_agent import vector_reflection_chain, reflection_chain
 from src.agents.mcp_rdf_agent import run_mcp_agent
-from src.agents.routing_agent import router_chain
+# from src.agents.routing_agent import router_chain
 from src.agents.log_analysis_agent import log_analysis_chain
 
 logger = logging.getLogger(__name__)
 
 # --- Node Definition: Guardrails ---
 def guardrails_node(state: AgentState):
-    """Decides if the question is relevant."""
-    logger.info("--- Executing Node: [[Guardrails]] ---")
+    """
+     node that checks relevance and routes the question to appropriate tool.
+    Returns relevance status and routing decision in a single operation.
+    """
+    logger.info("--- Executing Node: [[Guardrails & Router]] ---")
     question = state['question']
-    result = guardrails_chain.invoke({"question": question})
+    result = guardrails_router_chain.invoke({"question": question})
+    
     if result.decision == "irrelevant":
         logger.warning(f"[[Guardrails]]: Irrelevant question detected -> '{question}'")
-        return {"is_relevant": False, "answer": "Sorry, I can only answer questions related to cybersecurity, such as log analysis, attack techniques, malware, and threat actors."}
+        return {
+            "is_relevant": False, 
+            "answer": "Sorry, I can only answer questions related to log analysis and cybersecurity knowledge topic"
+        }
     else:
         logger.info("[[Guardrails]]: Question is relevant.")
-        return {"is_relevant": True}
-
-# --- Node Definition: Router ---
-def log_or_cyber_router_node(state: AgentState):
-    """
-    Determines if the question is about logs or general cyber knowledge
-    """
-    logger.info("--- Executing Node: [[Router]] ---")
-    question = state['question']
-    result = router_chain.invoke({"question": question})
-    logger.info(f"[[Router]]: Routing decision: {result.datasource}")
-    if result.datasource == "log_analysis":
-        return {"is_log_question": True}
-    else:
-        return {"is_log_question": False}
+        is_log_question = result.datasource == "log_analysis"
+        logger.info(f"[[Router]]: Routing decision: {result.datasource} -> is_log_question: {is_log_question}")
+        return {
+            "is_relevant": True,
+            "is_log_question": is_log_question
+        }
 
 # --- Node Definition: Vector Agent ---
 def vector_search_node(state: AgentState):
@@ -171,10 +169,6 @@ def log_analysis_node(state: AgentState):
         "log_cypher_context": str(state.get('log_cypher_context', 'No data')),
     })
     
-    # logger.info(f"[[Log Analysis Agent]]: Log Summary: {result.log_summary}")
-    # logger.info(f"[[Log Analysis Agent]]: Generated Question for RDF Agent: {result.generated_question}")
-    
-    
     # We will temporarily store the log summary in the 'answer' field
     # The synthesizer will later use this and combine it.
 
@@ -234,7 +228,6 @@ workflow = StateGraph(AgentState)
 
 # Add Nodes
 workflow.add_node("guardrails", guardrails_node)
-workflow.add_node("log_or_cyber_router", log_or_cyber_router_node)
 workflow.add_node("vector_agent", vector_search_node)
 workflow.add_node("review_vector_answer", review_vector_node)
 workflow.add_node("vector_reflection", vector_reflection_node)
@@ -249,24 +242,18 @@ workflow.add_node("synthesizer", synthesize_node)
 
 # 1. Decision after Guardrails
 def decide_relevance(state: AgentState):
-    if state.get('is_relevant'):
-        logger.info("[Decision] Question is relevant, proceeding to search.")
-        return "log_or_cyber_router"
-    else:
+    if not state.get('is_relevant', False):
         logger.info("[Decision] Question is irrelevant, ending execution.")
         return END
     
-# 2. Decision after Router
-def decide_log_vs_cyber(state: AgentState):
-    if state.get('is_log_question'):
+    if state.get("is_log_question", False):
         logger.info("[Decision] Question is about logs, proceeding to vector search.")
-        return "vector_agent"
+        return "vector_agent"  # Route log questions to vector agent
     else:
         logger.info("[Decision] Question is about general cybersecurity information and threat intelligence, proceeding to MCP RDF agent.")
-        return "mcp_rdf_agent"
+        return "mcp_rdf_agent"   # Route cyber knowledge questions to rdf agent
 
-
-# 3. Decision after Vector Review
+# 2. Decision after Vector Review
 def decide_after_vector_review(state: AgentState):
     if state.get('vector_answer_sufficient'):
         logger.info("[Decision] Vector context is sufficient. Proceeding to Cypher agent.")
@@ -302,7 +289,7 @@ def decide_after_cypher_review(state: AgentState):
             logger.error("[Decision] Max retries for Cypher reached with no usable context. Proceeding to Log Analysis with no Cypher data.")
             return "log_analysis_agent"
 
-# 3. Decision after Log Analysis
+# 4. Decision after Log Analysis
 def decide_after_log_analysis(state: AgentState):
     if state.get('is_cskg_required'):
         logger.info("[Decision] yes, proceeding to cybersecurity knowledge.")
@@ -319,17 +306,9 @@ workflow.add_conditional_edges(
     "guardrails", 
     decide_relevance, 
     {
-        "log_or_cyber_router": "log_or_cyber_router", 
-        END: END
-    }
-)
-
-workflow.add_conditional_edges(
-    "log_or_cyber_router",
-    decide_log_vs_cyber,
-    {
         "vector_agent": "vector_agent",
-        "mcp_rdf_agent": "mcp_rdf_agent"
+        "mcp_rdf_agent": "mcp_rdf_agent",
+        END: END
     }
 )
 
@@ -370,11 +349,6 @@ workflow.add_edge(
     "cypher_reflection", 
     "cypher_agent"
 )
-
-# workflow.add_edge(
-#     "log_analysis_agent",
-#     "mcp_rdf_agent"
-# )
 
 workflow.add_conditional_edges(
     "log_analysis_agent",
