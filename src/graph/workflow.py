@@ -162,7 +162,7 @@ def cypher_reflection_node(state: AgentState):
 
 # --- Node Definition: Log Analysis Agent ---
 def log_analysis_node(state: AgentState):
-    """Analyzes log data and generates a new question for the RDF agent."""
+    """Analyzes log data and determine whether cybersecurity knowledge is required."""
     logger.info("--- Executing Node: [[Log Analysis Agent]] ---")
     
     result = log_analysis_chain.invoke({
@@ -170,16 +170,20 @@ def log_analysis_node(state: AgentState):
         "log_vector_context": str(state.get('log_vector_context', 'No data')),
         "log_cypher_context": str(state.get('log_cypher_context', 'No data')),
     })
-
-    logger.info(f"[[Log Analysis Agent]]: Log Summary: {result.log_summary}")
-    logger.info(f"[[Log Analysis Agent]]: Generated Question for RDF Agent: {result.generated_question}")
+    
+    # logger.info(f"[[Log Analysis Agent]]: Log Summary: {result.log_summary}")
+    # logger.info(f"[[Log Analysis Agent]]: Generated Question for RDF Agent: {result.generated_question}")
+    
     
     # We will temporarily store the log summary in the 'answer' field
     # The synthesizer will later use this and combine it.
-    return {
-        "answer": result.log_summary,
-        "generated_question_for_rdf": result.generated_question
-    }
+
+    if result.decision == "cskg_required":
+        logger.info(f"[[Log Analysis Agent]]: The analysis requires Cybersecurity Knowledge")
+        return {"is_cskg_required": True, "answer": result.log_summary, "generated_question_for_rdf": result.generated_question}
+    else:
+        logger.info("[[Log Analysis Agent]]: The analysis doesn not require Cybersecurity Knowledge.")
+        return {"is_cskg_required": False, "answer": result.log_summary}
 
 # --- Node Definition: MCP RDF Agent ---
 async def mcp_rdf_agent_node(state: dict) -> dict:
@@ -258,7 +262,7 @@ def decide_log_vs_cyber(state: AgentState):
         logger.info("[Decision] Question is about logs, proceeding to vector search.")
         return "vector_agent"
     else:
-        logger.info("[Decision] Question is about cyber knowledge, proceeding to RDF agent.")
+        logger.info("[Decision] Question is about general cybersecurity information and threat intelligence, proceeding to MCP RDF agent.")
         return "mcp_rdf_agent"
 
 
@@ -298,6 +302,15 @@ def decide_after_cypher_review(state: AgentState):
             logger.error("[Decision] Max retries for Cypher reached with no usable context. Proceeding to Log Analysis with no Cypher data.")
             return "log_analysis_agent"
 
+# 3. Decision after Log Analysis
+def decide_after_log_analysis(state: AgentState):
+    if state.get('is_cskg_required'):
+        logger.info("[Decision] yes, proceeding to cybersecurity knowledge.")
+        return "mcp_rdf_agent"
+    else:
+        logger.warning("[Decision] no, proceeding to synthesizer.")
+        return "synthesizer"
+    
 # --- Define Edges ---
 workflow.set_entry_point("guardrails")
 
@@ -358,9 +371,18 @@ workflow.add_edge(
     "cypher_agent"
 )
 
-workflow.add_edge(
+# workflow.add_edge(
+#     "log_analysis_agent",
+#     "mcp_rdf_agent"
+# )
+
+workflow.add_conditional_edges(
     "log_analysis_agent",
-    "mcp_rdf_agent"
+    decide_after_log_analysis,
+    {
+        "mcp_rdf_agent": "mcp_rdf_agent",
+        "synthesizer": "synthesizer"
+    }
 )
 
 workflow.add_edge(

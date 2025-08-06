@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from src.config.settings import llm
 
 class GuardrailsOutput(BaseModel):
-    decision: Literal["relevant", "irrelevant"] = Field(description="Checks if the question is relevant to cybersecurity topics within the knowledge graph, including log analysis, malware, and threat actors.")
+    decision: Literal["relevant", "irrelevant"] = Field(description="Checks if the question is relevant to cybersecurity topics including log analysis, threat detection, vulnerability assesment and attack pattern reconstruction.")
 
 guardrails_prompt = ChatPromptTemplate.from_messages([
     (
@@ -15,9 +15,9 @@ guardrails_prompt = ChatPromptTemplate.from_messages([
         Your task is to determine if a question is answerable by the graph.
         The graph contains two types of information:
             1.  **Log Data:** Detailed records of system events, including specific users, servers, hosts, processes, and session activities (e.g., login successes or failures).
-            2.  **Cybersecurity Knowledge:** General concepts like malware, threat actors, and attack frameworks (e.g., MITRE ATT&CK).
+            2.  **Cybersecurity Knowledge:** knowledge base for threat intelligence, including CVE, CWE, CAPEC and MITRE ATT&CK.
 
-        A question is **relevant** if it asks about specific entities found in logs (like 'user danette', 'server-db-01') OR general cybersecurity topics.
+        A question is **relevant** if it asks about security log analysis such as finding suspicious activities in log or identify specific entities in logs such as users, hosts, ip-address, log events, OR general cybersecurity topics.
         A question is **irrelevant** if it is completely off-topic (e.g., 'what is the weather?', 'tell me a joke').
 
         Only allow relevant questions to pass.
