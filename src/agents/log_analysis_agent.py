@@ -17,8 +17,8 @@ log_analysis_prompt = ChatPromptTemplate.from_messages([
         """You are a security analyst expert. You have received structured and unstructured data from system logs.
         Your tasks are:
         1.  Summarize the findings from the provided log context to directly answer the user's original question.
-        2.  Based on summarized findings, determine whether it requires depth analysis with MCP cybersecurity knowledge. 
-        3.  return 'cskg_required' if it requires depth analysis with MCP cybersecurity knowledge. Return 'cskg_not_required' if it does not. 
+        2.  Based on the user's original question, determine whether it requires further analysis with cybersecurity knowledge base. 
+        3.  return 'cskg_required' if the user's original question requires further analysis with cybersecurity knowledgebase. Return 'cskg_not_required' if it does not. 
 
         """
     ),

@@ -68,7 +68,7 @@ def structured_retriever(question: str) -> str:
         
         response = graph.query(
             """
-            CALL db.index.fulltext.queryNodes('log_entities', $query, {limit: 10})
+            CALL db.index.fulltext.queryNodes('entities', $query, {limit: 10})
             YIELD node AS entity
             
             MATCH (chunk:Chunk)-[:HAS_ENTITY]->(entity)
